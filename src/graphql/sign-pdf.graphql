@@ -1,0 +1,15 @@
+mutation SignPdf($data: BrysignSignPdfPadesInput!) {
+  signPdf(data: $data) {
+    identificador
+    quantidadeAssinaturas
+    documentos {
+      nonce
+      nomeArquivo
+      links {
+        href
+        rel
+      }
+      hash
+		}
+  }
+}

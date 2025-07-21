@@ -1,0 +1,24 @@
+mutation InitPdf($data: CreateInitPadesInput!) {
+  initPdf(data: $data) {
+    certsInfo {
+      title
+      nonce
+      musicId
+    }
+    data {
+      nonce
+      formatoDadosSaida
+      formatoDadosEntrada
+      algoritmoHash
+      assinaturas {
+        hashes
+        nonce
+        algoritmoHash
+      }
+      assinaturasInicializadas {
+        nonce
+        messageDigest
+      }
+    }
+  }
+}

@@ -1,63 +1,91 @@
 "use client";
 import { useEffect, useState } from "react";
+import {
+  useInitPdfMutation,
+  useSignPdfMutation,
+} from "@/graphql/generated/graphql";
+import { ApolloProvider } from "@apollo/client";
+import { client } from "./layout";
+
+type Cert = {
+  certificateData?: string;
+  certId?: string;
+};
+
+declare global {
+  interface Window {
+    BryExtension?: {
+      listCertificates: () => Promise<Cert[]>;
+      sign: (certId: string, data: string) => Promise<any>;
+    };
+  }
+}
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
-  const [cert, setCert] = useState({});
+  const [cert, setCert] = useState<Cert>({});
+  const [initPdf] = useInitPdfMutation();
+  const [signPdf] = useSignPdfMutation();
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.BryExtension) {
-      window.BryExtension.listCertificates().then((certs: any[]) => {
+      window.BryExtension.listCertificates().then((certs: Cert[]) => {
         setCert(certs[0]);
-        console.log("BRYEXTENSION certificates", certs);
       });
     }
   }, []);
 
-  async function handleSignPdf(json: any) {
-    const digest =
-      json.assinaturasInicializadas &&
-      json.assinaturasInicializadas[0] &&
-      json.assinaturasInicializadas[0].messageDigest;
+  async function handleSignPdf(json: any, certsInfo: any) {
+    console.log("CERTSINFO", certsInfo);
+    console.log("JSON", json);
+    const cleanedCertsInfo = Array.isArray(certsInfo)
+      ? certsInfo.map(({ __typename, ...rest }: any) => rest)
+      : certsInfo;
 
-    return await fetch("http://localhost:4090/brysign/sign-pdf", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        formatoDadosEntrada: "Base64",
-        nonce: json.nonce,
-        formatoDadosSaida: "Base64",
-        assinaturas: [
-          {
-            algoritmoHash: "SHA256",
-            nonce: json.assinaturas[0].nonce,
-            hashes: json.assinaturas[0].hashes,
+    // Ensure assinaturas includes algoritmoHash
+    const assinaturas = (json.assinaturas || []).map((assinatura: any) => ({
+      ...assinatura,
+      algoritmoHash: assinatura.algoritmoHash || "SHA256", // or set as needed
+    }));
+
+    if (!json || !certsInfo) return;
+    try {
+      const { data } = await signPdf({
+        variables: {
+          data: {
+            formatoDadosEntrada: "Base64",
+            nonce: json.nonce,
+            certsInfo: cleanedCertsInfo,
+            formatoDadosSaida: "Base64",
+            assinaturas,
           },
-        ],
-      }),
-    });
+        },
+      });
+      console.log("SignPdf result", data);
+      return data;
+    } catch (error) {
+      console.error(error);
+    }
   }
 
   const handleInitPdf = async () => {
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:4090/brysign/init-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          certificate: cert.certificateData,
-        }),
-      }).then(async (res) => {
-        const json = await res.json();
-        if (cert) {
-          const res = await window.BryExtension.sign(
-            cert.certId,
-            JSON.stringify(json),
-          );
-          return res;
-        }
+      const { data } = await initPdf({
+        variables: {
+          data: {
+            certificate: cert.certificateData!,
+            musicIds: [5175],
+          },
+        },
       });
-      await handleSignPdf(response);
+      if (data && cert) {
+        const resSign = await window.BryExtension!.sign(
+          cert.certId!,
+          JSON.stringify(data.initPdf.data),
+        );
+        await handleSignPdf(resSign, data.initPdf.certsInfo);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -69,13 +97,6 @@ export default function Home() {
     <div>
       <button onClick={handleInitPdf} disabled={loading}>
         {loading ? "Loading..." : "Init PDF"}
-      </button>
-      <button
-        onClick={handleSignPdf}
-        disabled={loading}
-        style={{ marginLeft: "8px" }}
-      >
-        {loading ? "Loading..." : "Sign PDF"}
       </button>
     </div>
   );
